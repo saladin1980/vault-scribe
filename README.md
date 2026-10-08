@@ -75,6 +75,7 @@ Full walkthrough: **[docs/setup.md](docs/setup.md)**.
 
 - [Why a scribe for a second brain](docs/why.md): the problem it solves, and the design choices behind it
 - [Setup with Obsidian](docs/setup.md): step-by-step, with a config template
+- [Using it well](docs/using-it-well.md): habits that make the notes far more useful
 - [Configuration reference](docs/configuration.md): every setting
 - [How it works](docs/how-it-works.md): capture, summaries, crash safety, what it reads and writes, privacy
 - [The review loop](docs/review-workflow.md): what to do with signals, from manual review to an automated reviewer

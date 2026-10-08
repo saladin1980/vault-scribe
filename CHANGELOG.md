@@ -6,6 +6,7 @@
   - A held push is refused until the owner's own message approves it.
   - An announced push goes through with a reminder to say what is deploying.
   - Repos are matched by remote, so every clone gets the same rule.
+- **Docs:** a new "Using it well" guide (habits that make the notes more useful) and the push policy reference.
 - **`guard_force_push`:** holds force pushes until the owner's message says "force".
 
 ## 0.2.0
