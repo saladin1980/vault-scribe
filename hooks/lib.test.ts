@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import {
   checkQuotes, commandDenyReason, countSessions, dailyNotePath, extractCitations, firstDiffLine, hasVerifiedQuote,
   isTrivial, newDailyNote, noteLink, ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason,
-  projectDirName, redact, renderBlock, renderSignal, shouldQueue, staleCitations, stampOf, tagText, upsertSession,
+  approvesPush, matchPushRule, normRemote, parseGitPush, projectDirName, redact, renderBlock, renderSignal, shouldQueue, staleCitations, stampOf, tagText, upsertSession,
 } from './lib'
 import type { Agg, GuardOptions } from './lib'
 
@@ -234,4 +234,45 @@ test('citations: an insert above a cited line is caught', () => {
   expect(staleCitations(idx, `${ROOT}/Projects/map.md`, 200, 1).length).toBe(0)
   expect(staleCitations(idx, `${ROOT}/Projects/map.md`, 92, 0).length).toBe(0)
   expect(noteLink(`${ROOT}/x/MEMORY.md`, ROOT)).toBe('[[x/MEMORY|MEMORY]]')
+})
+
+
+test('git push parsing: folder, remote, branch, force', () => {
+  expect(parseGitPush('git push')).toEqual({ dir: null, remote: 'origin', branch: null, isForce: false })
+  expect(parseGitPush('cd "C:/code/website" && git add -A && git commit -m x && git push origin main'))
+    .toEqual({ dir: 'C:/code/website', remote: 'origin', branch: 'main', isForce: false })
+  expect(parseGitPush('git -C "C:/code/blog" push -u origin HEAD:release')?.branch).toBe('release')
+  expect(parseGitPush('Set-Location "C:\\code\\site"; git push --force-with-lease')?.isForce).toBe(true)
+  expect(parseGitPush('git push origin +main')?.isForce).toBe(true)
+  expect(parseGitPush('git status; git log --oneline')).toBeNull()
+  expect(parseGitPush('echo "git push"')).toBeNull()
+})
+
+test('push rules: remote suffix or path, exact branch beats *', () => {
+  const rules = parseProjectMap(`# c
+
+## Push policy
+
+| Repo | Branch | Policy | Deploys to | Test |
+|---|---|---|---|---|
+| alex/website | main | hold | live site, no staging | run npm run dev first |
+| alex/website | * | announce | preview deploy | check the preview URL |
+| C:/code/scratch | * | go | nothing | |
+`).pushPolicy
+  expect(rules.length).toBe(3)
+  expect(normRemote('git@github.com:alex/website.git')).toBe('github.com/alex/website')
+  expect(matchPushRule(rules, 'https://github.com/alex/website.git', 'C:/w', 'main')?.policy).toBe('hold')
+  expect(matchPushRule(rules, 'git@github.com:alex/website.git', 'C:/w', 'feature-x')?.policy).toBe('announce')
+  expect(matchPushRule(rules, 'https://github.com/alex/website-old.git', 'C:/w', 'main')).toBeNull()
+  expect(matchPushRule(rules, '', 'C:/code/scratch/sub', 'main')?.policy).toBe('go')
+})
+
+test('push approval only from clear words; force needs "force"', () => {
+  expect(approvesPush('tested locally, ship it', false)).toBe(true)
+  expect(approvesPush('ok push it', false)).toBe(true)
+  expect(approvesPush('yes, deploy', false)).toBe(true)
+  expect(approvesPush('go ahead', false)).toBe(false)
+  expect(approvesPush('fix the button', false)).toBe(false)
+  expect(approvesPush('ship it', true)).toBe(false)
+  expect(approvesPush('force push it', true)).toBe(true)
 })

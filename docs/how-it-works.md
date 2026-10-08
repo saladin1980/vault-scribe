@@ -82,7 +82,15 @@ A refused call comes back to Claude with the reason, so it changes course with n
 
 **Known limit:** the shell check reads the command text, so a command that merely *contains* a guarded string (say, inside a heredoc of test data) is also refused. That's conservative on purpose; write such data with a file-writing tool instead.
 
-### 7. Citations
+### 7. Push guard
+
+When a shell command contains a `git push`, the mod works out the repo's folder (from `git -C`, a preceding `cd` / `Set-Location`, or the session's folder), its remote and its branch (by running `git remote get-url` and `git rev-parse`), and looks the pair up in the config note's push policy:
+- **hold:** refused with what the push would deploy and what to test first, unless your own prompt this turn approves it
+- **announce:** goes through, and Claude is reminded to tell you it is deploying and what to test
+- **go**, or no matching rule: goes through
+- **force pushes:** held whenever `guard_force_push` is on
+
+### 8. Citations
 
 In the background at session start, every vault note is scanned for `name.md:NNN` citations. After an edit to a vault note changes its line count, Claude is told which citations elsewhere now point below the change, and by how much.
 

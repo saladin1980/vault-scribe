@@ -1,6 +1,6 @@
 {
   "name": "vault-scribe",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An all-in-one notes manager for an Obsidian second brain: writes the daily note itself (changes and why, decisions, discussions, research and lookups), queues cross-project signals for review, shows a heads-up band, and guards dangerous writes.",
   "types": "./types/index.d.ts",
   "author": {

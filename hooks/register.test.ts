@@ -160,3 +160,47 @@ test('lookups and research reach the summary as context, not as changes', async 
   expect(w.asked[0] ?? '').toContain('ACTION: read Read: C:/code/blog/embed.js')
   expect(w.files[SIGNALS] ?? '').not.toContain('This session touched Blog')
 })
+
+
+const PUSH_CONFIG = CONFIG.replace('guard_n8n_delete: true', 'guard_n8n_delete: true\nguard_force_push: true') + `
+## Push policy
+
+| Repo | Branch | Policy | Deploys to | Test |
+|---|---|---|---|---|
+| alex/website | main | hold | live site, no staging | run npm run dev first |
+| alex/website | preview | announce | preview deploy on Vercel | check the preview URL |
+`
+
+function pushWorld(on: On, branch: string) {
+  const w = world(on)
+  w.files[CONFIG_PATH] = PUSH_CONFIG
+  on('process.run', async ($, e) => {
+    const a = e.argv.join(' ')
+    const out = a.includes('remote get-url') ? 'https://github.com/alex/website.git\n' : a.includes('rev-parse') ? `${branch}\n` : ''
+    return ok({ exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
+  })
+  return w
+}
+
+test('push guard: a held push is refused until the owner says ship it', async ($, on) => {
+  pushWorld(on, 'main')
+  await start($)
+  await $.prompt.submit({ text: 'commit the form fix', origin: { kind: 'composer' }, wait: false } as never)
+  const held = (await $.tool.call({ tool: 'Bash', command: 'git push' } as never)) as { deny?: string }
+  expect(held.deny ?? '').toContain('held this push')
+  expect(held.deny ?? '').toContain('run npm run dev first')
+  await $.prompt.submit({ text: 'tested it locally, ship it', origin: { kind: 'composer' }, wait: false } as never)
+  const ok2 = (await $.tool.call({ tool: 'Bash', command: 'git push' } as never)) as { deny?: string }
+  expect(ok2.deny).toBeUndefined()
+})
+
+test('push guard: announce lets it through with a note; force push is held', async ($, on) => {
+  pushWorld(on, 'preview')
+  await start($)
+  await $.prompt.submit({ text: 'push the preview', origin: { kind: 'composer' }, wait: false } as never)
+  const r = (await $.tool.call({ tool: 'PowerShell', command: 'git push origin preview' } as never)) as { deny?: string; context?: string[] }
+  expect(r.deny).toBeUndefined()
+  expect((r.context ?? []).join(' ')).toContain('preview deploy on Vercel')
+  const f = (await $.tool.call({ tool: 'Bash', command: 'git push --force origin preview' } as never)) as { deny?: string }
+  expect(f.deny ?? '').toContain('FORCE push')
+})

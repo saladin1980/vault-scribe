@@ -30,7 +30,14 @@ export type ProjectMap = {
   guardN8nDelete: boolean
   /** What to update when a new project memory folder appears ("## New project checklist" in the config note). */
   checklist: string[]
+  /** Per repo and branch: what a push does and whether it is held ("## Push policy" in the config note). */
+  pushPolicy: PushRule[]
+  /** Hold every force push, whatever the policy says. */
+  guardForcePush: boolean
 }
+
+export type PushPolicyKind = 'hold' | 'announce' | 'go'
+export type PushRule = { repo: string; branch: string; policy: PushPolicyKind; deploysTo: string; test: string }
 
 export const DEFAULT_DAILY_NOTE = '{YYYY}-{MM}-{DD}.md'
 export const DEFAULT_SIGNALS_DIR = 'vault-scribe/signals'
@@ -157,6 +164,19 @@ export function parseProjectMap(text: string): ProjectMap {
     return l.length > 0 ? l : d
   }
   const checklist: string[] = []
+  const pushPolicy: PushRule[] = []
+  let inPush = false
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (/^#{1,6}\s+push policy\s*$/i.test(line)) { inPush = true; continue }
+    if (inPush && /^#{1,6}\s/.test(line)) break
+    if (!inPush || !line.startsWith('|') || /^\|[\s|:-]+\|$/.test(line) || /^\|\s*repo\s*\|/i.test(line)) continue
+    const [repo = '', branch = '', policy = '', deploysTo = '', test = ''] = line.slice(1, line.endsWith('|') ? -1 : undefined).split('|').map(x => x.trim())
+    const kind = policy.toLowerCase()
+    if (repo !== '' && (kind === 'hold' || kind === 'announce' || kind === 'go')) {
+      pushPolicy.push({ repo, branch: branch || '*', policy: kind, deploysTo, test })
+    }
+  }
   let inChecklist = false
   for (const raw of text.split(/\r?\n/)) {
     if (/^#{1,6}\s+new project checklist\s*$/i.test(raw.trim())) { inChecklist = true; continue }
@@ -182,6 +202,8 @@ export function parseProjectMap(text: string): ProjectMap {
     guardPaths: list(fm.guard_paths, []),
     guardN8nDelete: flag(fm.guard_n8n_delete, false),
     checklist: checklist.length > 0 ? checklist : DEFAULT_CHECKLIST,
+    pushPolicy,
+    guardForcePush: flag(fm.guard_force_push, false),
   }
 }
 
@@ -284,6 +306,57 @@ export function pathDenyReason(path: string, g: GuardOptions): string | null {
 }
 
 export const isN8nDeleteTool = (tool: string) => /n8n/i.test(tool) && /delete/i.test(tool)
+
+// ---------- push guard ----------
+
+export type GitPush = { dir: string | null; remote: string; branch: string | null; isForce: boolean }
+
+const unquote = (t: string) => t.replace(/^["']|["']$/g, '')
+const ARG = /"[^"]*"|'[^']*'|[^\s;&|]+/g
+
+/**
+ * The `git push` in a shell command, or null: its folder (`git -C x`, or a `cd x` / `Set-Location x` before it),
+ * remote, branch (from a refspec) and whether it forces.
+ */
+export function parseGitPush(cmd: string): GitPush | null {
+  const c = cmd.replace(/\r?\n/g, ' ')
+  const m = /(?:^|[;&|]\s*|\bthen\s+)\s*git((?:\s+-C\s+(?:"[^"]*"|'[^']*'|\S+)|\s+-c\s+\S+)*)\s+push\b([^;&|]*)/i.exec(c)
+  if (!m) return null
+  const before = c.slice(0, m.index)
+  const cds = [...before.matchAll(/\b(?:cd|set-location|push-location|sl|pushd)\s+(?:-path\s+|-literalpath\s+)?("[^"]*"|'[^']*'|[^\s;&|]+)/gi)]
+  const gitC = /-C\s+("[^"]*"|'[^']*'|\S+)/.exec(m[1] ?? '')
+  const dir = gitC?.[1] ? unquote(gitC[1]) : cds.length > 0 ? unquote(cds[cds.length - 1]?.[1] ?? '') : null
+  const args = [...(m[2] ?? '').matchAll(ARG)].map(a => unquote(a[0]))
+  const positional = args.filter(a => !a.startsWith('-'))
+  const isForce = args.some(a => /^(-f|--force|--force-with-lease(=.*)?|--force-if-includes|--mirror|--delete|-d)$/.test(a)) ||
+    positional.slice(1).some(r => r.startsWith('+') || r.startsWith(':'))
+  const ref = positional[1] ? positional[1].replace(/^\+/, '') : null
+  const branch = ref === null ? null : (ref.includes(':') ? ref.split(':').pop() ?? '' : ref).replace(/^refs\/heads\//, '') || null
+  return { dir: dir || null, remote: positional[0] ?? 'origin', branch: branch === 'HEAD' ? null : branch, isForce }
+}
+
+/** `https://github.com/me/site.git` and `git@github.com:me/site.git` both become `github.com/me/site`. */
+export const normRemote = (url: string) =>
+  url.trim().toLowerCase().replace(/^git@([^:]+):/, '$1/').replace(/^[a-z+]+:\/\/([^@/]*@)?/, '').replace(/\.git$/, '').replace(/\/+$/, '')
+
+/** The most specific rule for this repo and branch: an exact branch beats `*`. A repo is a remote suffix or a path prefix. */
+export function matchPushRule(rules: PushRule[], remoteUrl: string, dir: string, branch: string): PushRule | null {
+  const r = normRemote(remoteUrl)
+  const isRepo = (rule: PushRule) => {
+    const want = rule.repo.toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '')
+    if (/^[a-z]:|^\//i.test(rule.repo)) return isUnder(dir, rule.repo)
+    return r === want || r.endsWith('/' + want)
+  }
+  const hits = rules.filter(x => isRepo(x) && (x.branch === '*' || x.branch.toLowerCase() === branch.toLowerCase()))
+  return hits.find(x => x.branch !== '*') ?? hits[0] ?? null
+}
+
+const APPROVE_PUSH =
+  /\b(ship\s+it|push\s+it|push\s+(?:it\s+)?(?:now|away|live)|deploy\s+it|go\s+ahead\s+and\s+(?:push|deploy|ship)|(?:yes|ok|okay|yep)[,!.\s]+(?:push|deploy|ship)|approved?\s+(?:to\s+)?(?:push|deploy)|send\s+it)\b/i
+
+/** Whether the owner's own prompt approves a held push. A force push also needs the word "force". */
+export const approvesPush = (prompt: string, isForce: boolean) =>
+  APPROVE_PUSH.test(prompt) && (!isForce || /\bforce\b/i.test(prompt))
 
 // ---------- prompts ----------
 

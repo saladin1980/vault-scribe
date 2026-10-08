@@ -52,6 +52,7 @@ A block like this lands in today's daily note, updated after every turn:
 - **Heads-up band.** When another session changed something your current project depends on, a band appears above the prompt. The same note also goes to Claude, so it works from your phone over Remote Control.
 - **Citation check.** If you cite notes by line (`map.md:128`), an edit that shifts lines tells Claude exactly which citations elsewhere now point at the wrong line.
 - **New project checklist.** Creating a new project memory folder shows your own "what to update together" list.
+- **Project-aware push guard.** A per-repo push policy: *hold* the pushes that deploy to production or publish (until your own message says "ship it"), *announce* the ones where pushing is how you test, let the rest go. Force pushes can always be held.
 - **Optional guards** (all off by default): refuse writes into folders you have retired, into Claude's per-project auto-memory (if your vault is the single source of truth), and n8n workflow deletes.
 - **Configured by one note in your vault.** The model, your name, timezone, daily-note path, projects, guards, checklist: all in a note you edit in Obsidian. Nothing is hardcoded.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- **Push guard:** a per-repo push policy in the config note (`## Push policy`: repo, branch, hold / announce / go, what it deploys to, what to test).
+  - A held push is refused until the owner's own message approves it.
+  - An announced push goes through with a reminder to say what is deploying.
+  - Repos are matched by remote, so every clone gets the same rule.
+- **`guard_force_push`:** holds force pushes until the owner's message says "force".
+
 ## 0.2.0
 
 **Captures more of each session:**

@@ -7,7 +7,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { HeadsUp, HeadsUpItem } from '../types'
 import {
-  N8N_WHY, checkQuotes, clip, fwd, commandDenyReason, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
+  N8N_WHY, approvesPush, checkQuotes, clip, fwd, commandDenyReason, matchPushRule, parseGitPush, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
   isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, newDailyNote, newSignalsFile, norm,
   ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
   shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
@@ -304,6 +304,42 @@ function describeCall(tool: string, args: Record<string, unknown>, isReadOnly: b
   return null
 }
 
+/**
+ * The push guard: what the config note's push policy says about this `git push`, judged before it runs.
+ * A held push goes through only when the owner's own prompt this turn approves it ("ship it", "push it").
+ */
+async function pushDecision($: $T, command: string): Promise<{ deny?: string; note?: string }> {
+  const p = parseGitPush(command)
+  if (!p || (map.pushPolicy.length === 0 && !map.guardForcePush)) return {}
+  const cwd = fwd(await $.session.cwd())
+  const dir = p.dir === null ? cwd : /^[a-z]:|^\//i.test(fwd(p.dir)) ? fwd(p.dir) : `${cwd}/${fwd(p.dir)}`
+  const git = async (...args: string[]) => {
+    const r = await $.process.run(['git', '-C', dir, ...args], { timeoutMs: 5000 })
+    return r.exitCode === 0 ? r.stdout.trim() : ''
+  }
+  const url = await git('remote', 'get-url', p.remote)
+  const branch = p.branch ?? (await git('rev-parse', '--abbrev-ref', 'HEAD'))
+  const rule = matchPushRule(map.pushPolicy, url, dir, branch)
+  const said = current.prompt ?? ''
+  const where = `${url || dir} (${branch || 'current branch'})`
+  if (p.isForce && map.guardForcePush && !approvesPush(said, true)) {
+    return { deny: `vault-scribe held this push: it is a FORCE push to ${where}, which can wipe history. Ask ${map.owner} first; it goes through when their own message approves a force push (e.g. "force push it").` }
+  }
+  if (rule?.policy === 'hold' && !approvesPush(said, p.isForce)) {
+    return {
+      deny: [
+        `vault-scribe held this push to ${where}: ${rule.deploysTo || 'the push policy holds it'}.`,
+        rule.test ? `Before asking: ${rule.test}.` : '',
+        `Get ${map.owner}'s explicit sign-off, then push again. It goes through when their own message approves it ("ship it", "push it", "go ahead and push").`,
+      ].filter(x => x !== '').join(' '),
+    }
+  }
+  if (rule?.policy === 'announce') {
+    return { note: `vault-scribe: that push to ${where} deploys: ${rule.deploysTo}. Tell ${map.owner} it is on its way and what to test${rule.test ? ` (${rule.test})` : ''}.` }
+  }
+  return {}
+}
+
 function stampOfDate(date: string) {
   return stampOf(Date.parse(`${date}T12:00:00Z`))
 }
@@ -395,6 +431,8 @@ export const register: Register = (on, options) => {
       ?? (command ? commandDenyReason(command, g) : null)
       ?? (map.guardN8nDelete && isN8nDeleteTool(tool) ? N8N_WHY : null)
     if (reason) return { deny: `vault-scribe refused this: ${reason}` }
+    const push = command ? await pushDecision($, command).catch(() => ({} as { deny?: string; note?: string })) : {}
+    if (push.deny) return { deny: push.deny }
 
     // Soft rules: look before, act after.
     const isVaultMd = isWrite && path !== null && isUnder(path, root) && /\.md$/i.test(path)
@@ -412,6 +450,7 @@ export const register: Register = (on, options) => {
     if (described) current.actions.push(described)
 
     const notes: string[] = []
+    if (push.note) notes.push(push.note)
     if (agg && isVaultMd && path) {
       if (!agg.notes.some(n => norm(n) === norm(path))) agg.notes.push(path)
       if (map.reviewDir !== '' && isUnder(path, `${root}/${map.reviewDir}`)) agg.isReps = true
