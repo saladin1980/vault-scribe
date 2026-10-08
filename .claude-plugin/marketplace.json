@@ -1,0 +1,12 @@
+{
+  "name": "vault-scribe",
+  "owner": { "name": "saladin1980", "url": "https://github.com/saladin1980" },
+  "metadata": { "description": "vault-scribe: a Claude Code mod that keeps an Obsidian second brain up to date by itself." },
+  "plugins": [
+    {
+      "name": "vault-scribe",
+      "source": "./",
+      "description": "Writes the daily note itself (changes and why, decisions, discussions, research), queues cross-project signals, heads-up band, optional guards."
+    }
+  ]
+}

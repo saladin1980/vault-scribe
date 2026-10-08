@@ -1,0 +1,23 @@
+{
+  "name": "vault-scribe",
+  "version": "0.2.0",
+  "description": "An all-in-one notes manager for an Obsidian second brain: writes the daily note itself (changes and why, decisions, discussions, research and lookups), queues cross-project signals for review, shows a heads-up band, and guards dangerous writes.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "saladin1980"
+  },
+  "userConfig": {
+    "vault_root": {
+      "type": "string",
+      "title": "Vault folder",
+      "description": "Absolute path of your Obsidian vault (forward slashes are fine). Empty: the folder Claude Code was started in.",
+      "default": ""
+    },
+    "config_note": {
+      "type": "string",
+      "title": "Config note",
+      "description": "Vault-relative path of the note holding vault-scribe's settings (frontmatter) and project map (table). See README.md for a template.",
+      "default": "vault-scribe/config.md"
+    }
+  }
+}
