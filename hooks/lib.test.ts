@@ -228,11 +228,38 @@ test('decisions must quote the owner; unverifiable ones become discussions', () 
 
 test('citations: an insert above a cited line is caught', () => {
   const idx = extractCitations(`${ROOT}/Inbox/todo.md`, 'see `Projects\\map.md:128` and home.md:3')
-  expect(idx.map(c => [c.target, c.cited])).toEqual([['map.md', 128], ['home.md', 3]])
+  expect(idx.map(c => [c.target, c.cited])).toEqual([['projects/map.md', 128], ['home.md', 3]])
   expect(firstDiffLine('a\nb\nc', 'a\nX\nb\nc')).toBe(2)
   expect(staleCitations(idx, `${ROOT}/Projects/map.md`, 92, 1).length).toBe(1)
   expect(staleCitations(idx, `${ROOT}/Projects/map.md`, 200, 1).length).toBe(0)
   expect(staleCitations(idx, `${ROOT}/Projects/map.md`, 92, 0).length).toBe(0)
+  expect(staleCitations(idx, `${ROOT}/Other/sitemap.md`, 92, 1).length).toBe(0)
+})
+
+test('citations: a shared file name does not collide across projects', () => {
+  const a = extractCitations(`${ROOT}/Alpha/memory/notes.md`, 'index at MEMORY.md:12')
+  const b = extractCitations(`${ROOT}/Beta/memory/notes.md`, 'index at `Beta/memory/MEMORY.md:12`')
+  const idx = [...a, ...b]
+  const counts = new Map([['memory.md', 2]])
+  // editing Alpha's index flags only Alpha's bare same-folder citation
+  const hitA = staleCitations(idx, `${ROOT}/Alpha/memory/MEMORY.md`, 5, 1, counts)
+  expect(hitA.length).toBe(1)
+  expect(hitA[0]?.file).toBe(`${ROOT}/Alpha/memory/notes.md`)
+  // editing Beta's index flags only the folder-qualified citation
+  const hitB = staleCitations(idx, `${ROOT}/Beta/memory/MEMORY.md`, 5, 1, counts)
+  expect(hitB.length).toBe(1)
+  expect(hitB[0]?.file).toBe(`${ROOT}/Beta/memory/notes.md`)
+  // a third project's index matches neither
+  expect(staleCitations(idx, `${ROOT}/Gamma/memory/MEMORY.md`, 5, 1, counts).length).toBe(0)
+})
+
+test('citations: a bare name resolves vault-wide only when it is unique', () => {
+  const idx = extractCitations(`${ROOT}/Notes/rules.md`, 'see AGENTS.md:56 and MEMORY.md:3')
+  const counts = new Map([['agents.md', 1], ['memory.md', 4]])
+  expect(staleCitations(idx, `${ROOT}/AGENTS.md`, 10, 1, counts).length).toBe(1)
+  expect(staleCitations(idx, `${ROOT}/Alpha/memory/MEMORY.md`, 1, 1, counts).length).toBe(0)
+  // with no name counts, a bare name from another folder is ambiguous and skipped
+  expect(staleCitations(idx, `${ROOT}/AGENTS.md`, 10, 1).length).toBe(0)
   expect(noteLink(`${ROOT}/x/MEMORY.md`, ROOT)).toBe('[[x/MEMORY|MEMORY]]')
 })
 

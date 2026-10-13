@@ -696,17 +696,31 @@ export type Citation = { file: string; line: number; target: string; cited: numb
 
 const CITE = /([^\s`'"()[\]|<>*]+\.md):(\d+)(?:-(\d+))?/g
 
-/** Every `name.md:NNN` citation in a note, keyed by the cited file's lowercase basename. */
+/** Every `name.md:NNN` citation in a note. `target` is the cited path as written (lowercase, forward slashes, leading ./ and ../ dropped). */
 export function extractCitations(file: string, text: string): Citation[] {
   const out: Citation[] = []
   text.split(/\r?\n/).forEach((l, i) => {
     for (const m of l.matchAll(CITE)) {
-      const name = m[1] ?? ''
-      const base = name.replace(/\\/g, '/').split('/').pop() ?? name
-      out.push({ file, line: i + 1, target: base.toLowerCase(), cited: Number(m[2]) })
+      const target = norm(m[1] ?? '').replace(/^(\.\.?\/)+/, '')
+      out.push({ file, line: i + 1, target, cited: Number(m[2]) })
     }
   })
   return out
+}
+
+const baseName = (p: string) => norm(p).split('/').pop() ?? ''
+const dirName = (p: string) => norm(p).split('/').slice(0, -1).join('/')
+
+/**
+ * Does citation `c` point at `editedFile`? A cited path with a folder in it must match the
+ * edited path's tail, folder by folder. A bare name means the citing note's own folder,
+ * else the vault-wide file of that name, but only when `nameCounts` says it is unique.
+ */
+export function citesFile(c: Citation, editedFile: string, nameCounts?: Map<string, number>): boolean {
+  const edited = norm(editedFile)
+  if (c.target.includes('/')) return edited === c.target || edited.endsWith(`/${c.target}`)
+  if (baseName(edited) !== c.target) return false
+  return dirName(edited) === dirName(c.file) || nameCounts?.get(c.target) === 1
 }
 
 export function firstDiffLine(before: string, after: string): number {
@@ -719,8 +733,14 @@ export function firstDiffLine(before: string, after: string): number {
 
 export const lineCount = (t: string) => t.split(/\r?\n/).length
 
-export function staleCitations(index: Citation[], editedFile: string, fromLine: number, delta: number): Citation[] {
-  const base = (editedFile.replace(/\\/g, '/').split('/').pop() ?? '').toLowerCase()
-  if (delta === 0 || base === '') return []
-  return index.filter(c => c.target === base && c.cited >= fromLine && norm(c.file) !== norm(editedFile))
+/** Lowercase basename → how many vault files carry it; feeds the bare-name fallback in `citesFile`. */
+export function countNames(paths: string[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const p of paths) counts.set(baseName(p), (counts.get(baseName(p)) ?? 0) + 1)
+  return counts
+}
+
+export function staleCitations(index: Citation[], editedFile: string, fromLine: number, delta: number, nameCounts?: Map<string, number>): Citation[] {
+  if (delta === 0 || baseName(editedFile) === '') return []
+  return index.filter(c => c.cited >= fromLine && norm(c.file) !== norm(editedFile) && citesFile(c, editedFile, nameCounts))
 }

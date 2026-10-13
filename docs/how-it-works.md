@@ -94,6 +94,11 @@ When a shell command contains a `git push`, the mod works out the repo's folder 
 
 In the background at session start, every vault note is scanned for `name.md:NNN` citations. After an edit to a vault note changes its line count, Claude is told which citations elsewhere now point below the change, and by how much.
 
+A citation has to point at the file that was edited, not just share its name. This matters in a second brain where every project has its own `MEMORY.md` or `README.md`:
+- **A cited path with a folder** (`Projects/map.md:128`) matches only a file whose path ends with those folders.
+- **A bare name** (`MEMORY.md:12`) means the file next to the citing note. If there is none, it means the one file in the vault with that name, but only when there is exactly one.
+- **Otherwise the citation is ambiguous and is skipped.** A missed warning costs less than a wrong one. Write the folder into a citation when the name is common.
+
 ## Crash safety
 
 - **Every turn is saved** in the mod's store the moment it ends.

@@ -10,7 +10,7 @@ import {
   N8N_WHY, approvesPush, checkQuotes, clip, fwd, commandDenyReason, matchPushRule, parseGitPush, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
   isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, newDailyNote, newSignalsFile, norm,
   ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
-  shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
+  countNames, shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
 } from './lib'
 import type { Agg, Citation, GuardOptions, ProjectMap, Signal, Summary, TurnRec } from './lib'
 
@@ -34,6 +34,8 @@ let map: ProjectMap = parseProjectMap('')
 let agg: Agg | null = null
 let current: TurnRec = { actions: [] }
 let citations: Citation[] | null = null
+let mdPaths = new Set<string>()
+let nameCounts = new Map<string, number>()
 let headsUpAt = 0
 let idle: { cancel: () => void } | null = null
 let chain: Promise<unknown> = Promise.resolve()
@@ -115,25 +117,34 @@ async function refreshHeadsUp($: $T) {
 
 async function buildCitations($: $T) {
   const out: Citation[] = []
+  const paths = new Set<string>()
   const walk = async (dir: string, depth: number) => {
     if (depth > 8) return
     const entries = await $.fs.list(dir).catch(() => [])
     for (const en of entries) {
       if (en.kind === 'dir' && !map.skipDirs.includes(en.name) && !en.name.startsWith('.')) await walk(`${dir}/${en.name}`, depth + 1)
-      else if (en.kind === 'file' && en.name.toLowerCase().endsWith('.md') && en.size < 2_000_000) {
+      else if (en.kind === 'file' && en.name.toLowerCase().endsWith('.md')) {
         const path = `${dir}/${en.name}`
+        paths.add(norm(path))
+        if (en.size >= 2_000_000) continue
         const text = await $.fs.read(path).catch(() => '')
         if (/\.md:\d/.test(text)) out.push(...extractCitations(path, text))
       }
     }
   }
   await walk(root, 0)
+  mdPaths = paths
+  nameCounts = countNames([...paths])
   citations = out
 }
 
 function reindex(path: string, text: string) {
   if (!citations) return
   citations = citations.filter(c => norm(c.file) !== norm(path)).concat(extractCitations(path, text))
+  if (!mdPaths.has(norm(path))) {
+    mdPaths.add(norm(path))
+    nameCounts = countNames([...mdPaths])
+  }
 }
 
 // ---------- flush: summary → signals → daily note ----------
@@ -461,7 +472,7 @@ export const register: Register = (on, options) => {
         if (before !== null && citations) {
           const delta = lineCount(after) - lineCount(before)
           const from = firstDiffLine(before, after)
-          const stale = staleCitations(citations, path, from, delta)
+          const stale = staleCitations(citations, path, from, delta, nameCounts)
           if (stale.length > 0) {
             notes.push([
               `vault-scribe: this edit changed ${vaultRel(path, root)}.md's line count by ${delta > 0 ? '+' : ''}${delta} from line ${from}. These citations into it now point ${Math.abs(delta)} line(s) off. Fix them now (or make the edit line-neutral):`,

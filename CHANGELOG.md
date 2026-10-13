@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- **Fix: citation check no longer matches by file name alone.** Before, editing any `MEMORY.md` flagged every `MEMORY.md:NN` citation in the vault, even ones pointing at another project's file.
+  - A cited path with a folder must match the edited file's path.
+  - A bare name means the citing note's own folder, or the one file in the vault with that name.
+  - Anything else is skipped as ambiguous.
+  - Why: a second brain with one memory index per project made the warnings mostly noise.
+
 ## 0.3.0
 
 - **Push guard:** a per-repo push policy in the config note (`## Push policy`: repo, branch, hold / announce / go, what it deploys to, what to test).
