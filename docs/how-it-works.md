@@ -61,7 +61,7 @@ Em-dashes in the model's output become colons, and backslash paths become forwar
 - **Projects are attributed** by the summary and confirmed by evidence:
   - **Evidence:** only changes (edits, writes, non-read-only commands), matched by a real **path** or **host** from your project table.
   - **Not evidence:** reads, lookups, research and keywords.
-  - **A safety net:** a change touching another project that no summary item explained still produces a plain "this session touched X" signal, so nothing slips through silently.
+  - **A safety net:** a change touching another project that no summary item explained still produces a plain "this session touched X" signal, so nothing slips through silently. It fires once per project per session: a session that already queued any signal for X doesn't add another "touched X" every few prompts.
 - **Sessions started at the vault root:** such a session's own project is `vault`, so at first every project it works on counts as "another project". Once one project clearly leads its changes, it becomes the session's working project: at least 3 changes, and at least 60% of all of them. From then on that project's routine work stops queueing, while decisions, corrections and anything about other projects still do. This is re-checked at every summary. `/scribe` shows it as `own project: vault (working in X)`, and the heads-up band still covers the whole vault.
 
 **Format:** one block per signal in `signals_dir/<date>.md`. A reviewer flips the heading's status on the same line, which keeps the file's line numbers stable. See [the review loop](review-workflow.md).

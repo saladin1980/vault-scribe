@@ -232,7 +232,8 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
       found.push({ kind: s.kind, what: s.what, why: s.why, touches })
     }
     for (const [p, ev] of det) {
-      if (p === own || found.some(f => f.touches.has(p))) continue
+      // Once per project per session: a later "touched X" repeats what an earlier signal already put in the queue.
+      if (p === own || found.some(f => f.touches.has(p)) || (a.queuedFor ?? []).includes(p)) continue
       found.push({
         kind: 'change',
         what: `This session touched ${p} while working in ${own}: ${ev.slice(0, 3).join(', ')}`,
@@ -247,6 +248,7 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
       for (const f of found) {
         const projects = [...f.touches.keys()]
         if (!shouldQueue(f.kind, projects, own)) continue
+        a.queuedFor = [...new Set([...(a.queuedFor ?? []), ...projects.filter(p => p !== own)])]
         const touches = projects.map(p => `${p}${p === own ? ' (own project)' : ''} (${clip(f.touches.get(p)!.join(', '), 160)})`)
         queued.push({
           id: `SIG-${stamp.date}-${id8}-${a.signalIds.length + queued.length + 1}`, status: '⏳ pending', kind: f.kind,

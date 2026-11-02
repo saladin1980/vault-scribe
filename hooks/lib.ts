@@ -65,6 +65,8 @@ export type Agg = {
   focus?: string
   /** Change actions per project so far, the evidence `focus` is picked from (vault-root sessions only). */
   workCounts?: Record<string, number>
+  /** Projects this session has already queued a signal for; the "touched X" safety net fires once per project. */
+  queuedFor?: string[]
   sessionNo: number
   /** The note's date (the session's start day), and its HH:MM start. */
   date: string

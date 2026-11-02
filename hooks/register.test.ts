@@ -263,8 +263,8 @@ test('a vault-root session doing one project work takes it as its own', async ($
   }
   const sig = w.files[SIGNALS] ?? ''
   const touched = sig.split('\n').filter(l => l.includes('This session touched Website'))
-  // the first two turns still look cross-project; from the third edit on, Website is the session's own
-  expect(touched.length).toBe(2)
+  // the first turn looks cross-project, the second only repeats it (once per project), and from the third edit on Website is the session's own
+  expect(touched.length).toBe(1)
   expect(sig).toContain('own project: vault, working in Website')
   // a signal about another project still queues
   expect(sig).toContain('Blog')
