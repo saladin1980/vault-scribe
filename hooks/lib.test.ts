@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  checkQuotes, commandDenyReason, countSessions, dailyNotePath, extractCitations, firstDiffLine, hasVerifiedQuote,
+  checkQuotes, commandDenyReason, focusProject, countSessions, dailyNotePath, extractCitations, firstDiffLine, hasVerifiedQuote,
   isTrivial, newDailyNote, noteLink, ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason,
   approvesPush, matchPushRule, normRemote, parseGitPush, projectDirName, redact, renderBlock, renderSignal, shouldQueue, staleCitations, stampOf, tagText, upsertSession,
 } from './lib'
@@ -303,3 +303,12 @@ test('push approval only from clear words; force needs "force"', () => {
   expect(approvesPush('ship it', true)).toBe(false)
   expect(approvesPush('force push it', true)).toBe(true)
 })
+
+test('focus: one project has to clearly lead', () => {
+  expect(focusProject({ Website: 3 })).toBe('Website')
+  expect(focusProject({ Website: 2 })).toBeNull()
+  expect(focusProject({ Website: 3, Blog: 3 })).toBeNull()
+  expect(focusProject({ Website: 6, Blog: 2, Docs: 1 })).toBe('Website')
+  expect(focusProject({})).toBeNull()
+})
+

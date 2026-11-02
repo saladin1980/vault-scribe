@@ -9,7 +9,7 @@ import type { HeadsUp, HeadsUpItem } from '../types'
 import {
   N8N_WHY, approvesPush, checkQuotes, clip, fwd, commandDenyReason, matchPushRule, parseGitPush, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
   isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, newDailyNote, newSignalsFile, norm,
-  ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
+  focusProject, ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
   countNames, headsUpProject, tallyProjects, shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
 } from './lib'
 import type { Agg, Citation, GuardOptions, ProjectMap, Signal, Summary, TurnRec } from './lib'
@@ -187,7 +187,7 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
 
     let summary: Summary | null = null
     if (summarize && a.digest.length > 0) {
-      const { system, prompt } = summaryPrompt(digestText(a.digest), map.projects, a.own, map.owner)
+      const { system, prompt } = summaryPrompt(digestText(a.digest), map.projects, a.focus ?? a.own, map.owner)
       const r = await $.model.complete({ model: map.model, system, prompt, maxTokens: 2500, effort: 'low' }).catch(() => null)
       if (r && r.isAnswered) summary = parseSummary(r.text, names)
       // A decision only counts when it quotes words the owner actually typed.
@@ -198,6 +198,7 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
 
     // Deterministic tags from what the session actually touched.
     const det = new Map<string, string[]>()
+    const actsPer = new Map<string, number>()
     for (const t of a.digest) for (const act of t.actions) {
       // Only changes count: edits, writes and non-read-only shell commands. Reads, lookups and reports don't.
       if (!/^(edit|write) |^(Bash|PowerShell): /.test(act)) continue
@@ -207,9 +208,21 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
       // (a heredoc full of project names tagged seven projects on 2026-10-08).
       for (const [p, ev] of tagText(subject, map.projects)) {
         const hard = ev.filter(x => !x.startsWith('keyword '))
-        if (hard.length > 0) det.set(p, [...new Set([...(det.get(p) ?? []), ...hard])])
+        if (hard.length > 0) {
+          det.set(p, [...new Set([...(det.get(p) ?? []), ...hard])])
+          actsPer.set(p, (actsPer.get(p) ?? 0) + 1)
+        }
       }
     }
+    // A session started at the vault root that is really doing one project's work takes that project as its
+    // own, so its routine work stops being queued as cross-project (40 of 63 pending signals on 2026-11-02).
+    if (summarize && a.own === 'vault') {
+      a.workCounts ??= {}
+      for (const [p, n] of actsPer) a.workCounts[p] = (a.workCounts[p] ?? 0) + n
+      a.focus = focusProject(a.workCounts) ?? undefined
+    }
+    const own = a.focus ?? a.own
+    const ownLabel = a.focus ? `${a.own}, working in ${a.focus}` : a.own
 
     const found: { kind: Signal['kind']; what: string; why: string; touches: Map<string, string[]> }[] = []
     for (const s of summary?.signals ?? []) {
@@ -219,10 +232,10 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
       found.push({ kind: s.kind, what: s.what, why: s.why, touches })
     }
     for (const [p, ev] of det) {
-      if (p === a.own || found.some(f => f.touches.has(p))) continue
+      if (p === own || found.some(f => f.touches.has(p))) continue
       found.push({
         kind: 'change',
-        what: `This session touched ${p} while working in ${a.own}: ${ev.slice(0, 3).join(', ')}`,
+        what: `This session touched ${p} while working in ${own}: ${ev.slice(0, 3).join(', ')}`,
         why: 'Detected from the tools the session ran; no summarized signal covered it. Check what changed and whether its notes need it.',
         touches: new Map([[p, ev]]),
       })
@@ -233,13 +246,13 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
     if (summarize && !a.isReps) {
       for (const f of found) {
         const projects = [...f.touches.keys()]
-        if (!shouldQueue(f.kind, projects, a.own)) continue
-        const touches = projects.map(p => `${p}${p === a.own ? ' (own project)' : ''} (${clip(f.touches.get(p)!.join(', '), 160)})`)
+        if (!shouldQueue(f.kind, projects, own)) continue
+        const touches = projects.map(p => `${p}${p === own ? ' (own project)' : ''} (${clip(f.touches.get(p)!.join(', '), 160)})`)
         queued.push({
           id: `SIG-${stamp.date}-${id8}-${a.signalIds.length + queued.length + 1}`, status: '⏳ pending', kind: f.kind,
           what: redact(f.what), why: redact(f.why), sessionId: id8,
-          from: `session ${id8} · cwd \`${a.cwd}\` · own project: ${a.own} · ${stamp.date} ${stamp.time}`,
-          touches: touches.length > 0 ? touches : [`${a.own} (own project)`],
+          from: `session ${id8} · cwd \`${a.cwd}\` · own project: ${ownLabel} · ${stamp.date} ${stamp.time}`,
+          touches: touches.length > 0 ? touches : [`${own} (own project)`],
         })
       }
       if (queued.length > 0) {
@@ -256,12 +269,12 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
         a.ctx.push(`vault-scribe: captured a ${q.kind}: "${clip(q.what, 200)}" (${q.id}, queued for review). Before calling it applied, search the WHOLE vault for its subject, not just the file at hand: a ruling applied to one file tends to leave contradicting lines elsewhere.`)
       }
     }
-    const ownRow = map.projects.find(p => p.name === a.own)
+    const ownRow = map.projects.find(p => p.name === own)
     const touchedOwnMemory = ownRow ? a.notes.some(n => isUnder(n, `${root}/${ownRow.memory}`)) : true
     const editedSomething = a.digest.some(t => t.actions.some(x => /^(edit|write) /.test(x)))
     if (summarize && ownRow && !touchedOwnMemory && !a.isNudged && editedSomething && a.humanTurns >= 3) {
       a.isNudged = true
-      a.ctx.push(`vault-scribe: this session has been changing ${a.own}, and nothing in its memory folder (${ownRow.memory}) has been updated yet. If a fact a future session needs changed, update that project's memory notes now while the context is here; the daily note is already handled.`)
+      a.ctx.push(`vault-scribe: this session has been changing ${own}, and nothing in its memory folder (${ownRow.memory}) has been updated yet. If a fact a future session needs changed, update that project's memory notes now while the context is here; the daily note is already handled.`)
     }
 
     if (summary) Object.assign(a, mergeSummary(a, summary))
@@ -396,6 +409,7 @@ export const register: Register = (on, options) => {
     const startDir = await $.session.root()
     a.cwd = fwd(startDir)
     a.own = ownProject(startDir, map.projects, root)
+    if (a.own !== 'vault') { a.focus = undefined; a.workCounts = undefined }
     await save($)
     current = { actions: [] }
     // A resumed or reloaded session with turns never written up: write them now, summarize in the background.
@@ -551,7 +565,7 @@ export const register: Register = (on, options) => {
     const hu = await read($, headsUp)
     return {
       text: [
-        `vault-scribe · owner: ${map.owner} · own project: ${a.own} · cwd ${a.cwd} · config: ${configNote}`,
+        `vault-scribe · owner: ${map.owner} · own project: ${a.own}${a.focus ? ` (working in ${a.focus})` : ''} · cwd ${a.cwd} · config: ${configNote}`,
         `captured: ${a.humanTurns} prompt(s), ${a.digest.length} turn(s) waiting for the next summary, ${a.notes.length} vault note(s) touched, ${(a.discussions ?? []).length} discussion(s), ${(a.research ?? []).length} research item(s)`,
         `daily note: ${a.sessionNo > 0 ? `Session ${a.sessionNo} in ${a.date}.md` : 'not written yet'} · summary model: ${map.model} every ${map.summarizeEvery} prompt(s)`,
         `signals queued by this session: ${a.signalIds.length}${a.isReps ? ' (reviewer run: queueing is off)' : ''}`,

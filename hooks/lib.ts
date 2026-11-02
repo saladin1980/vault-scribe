@@ -61,6 +61,10 @@ export type Agg = {
   sessionId: string
   cwd: string
   own: string
+  /** A vault-root session that has settled into one project's work: signals are judged against it, not `vault`. */
+  focus?: string
+  /** Change actions per project so far, the evidence `focus` is picked from (vault-root sessions only). */
+  workCounts?: Record<string, number>
   sessionNo: number
   /** The note's date (the session's start day), and its HH:MM start. */
   date: string
@@ -695,6 +699,18 @@ export function mergeSummary(a: Agg, s: Summary): Agg {
     research: dedupe([...(a.research ?? []), ...s.research], 20),
     inProgress: s.inProgress.length > 0 ? s.inProgress : a.inProgress,
   }
+}
+
+/**
+ * The project a vault-root session is really working in: the one with at least `min` change
+ * actions and at least `share` of them all. Null while no project clearly leads.
+ */
+export function focusProject(counts: Record<string, number>, min = 3, share = 0.6): string | null {
+  const entries = Object.entries(counts).filter(([, n]) => n > 0)
+  const total = entries.reduce((t, [, n]) => t + n, 0)
+  const [best] = entries.sort((x, y) => y[1] - x[1])
+  if (!best || best[1] < min || best[1] / total < share) return null
+  return best[0]
 }
 
 /** Signals worth queueing for review: anything touching another project, plus every decision/correction. */

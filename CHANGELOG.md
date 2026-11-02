@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- **Vault-root sessions take on the project they're actually working in.** Once one project has at least 3 changes and at least 60% of the session's changes, signals are judged against that project instead of `vault`. Its routine work stops queueing as cross-project, while decisions, corrections and other projects' changes still queue. The memory nudge points at that project too.
+  - Why: one project's session started at the vault root made 40 of 63 pending signals, all about its own work.
+
 ## 0.4.0
 
 - **A heads-up band you can read and act on.** Before, it showed one count and the last three items, each cut off at the window edge. There was no way to see the rest and no hint of what to do.

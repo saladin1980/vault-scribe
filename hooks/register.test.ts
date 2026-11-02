@@ -31,7 +31,7 @@ const SUMMARY = {
   signals: [{ kind: 'change', what: 'the form endpoint now returns 422 on spam', why: 'the blog embeds this form', projects: ['Blog'], quote: '' }],
 }
 
-function world(on: On, store: Record<string, unknown> = {}, toolResult: object = { result: 'done', text: 'done' }) {
+function world(on: On, store: Record<string, unknown> = {}, toolResult: object = { result: 'done', text: 'done' }, cwd = 'C:/code/website') {
   const clock = mock.clock(on, { now: Date.parse('2026-10-08T16:00:00Z') })
   mock.store(on, store)
   mock.env(on, { VAULT_SCRIBE_ROOT: ROOT })
@@ -42,8 +42,8 @@ function world(on: On, store: Record<string, unknown> = {}, toolResult: object =
     return ok({ isAnswered: true, text: JSON.stringify(SUMMARY), usage: {} })
   })
   on('session.id', async () => ok('abcdef12-0000-0000-0000-000000000000'))
-  on('session.cwd', async () => ok('C:/code/website'))
-  on('session.root', async () => ok('C:/code/website'))
+  on('session.cwd', async () => ok(cwd))
+  on('session.root', async () => ok(cwd))
   on('fs.exists', async ($, e) => {
     const k = key(e.path).replace(/\/+$/, '')
     return ok(k in files || Object.keys(files).some(f => f.startsWith(`${k}/`)))
@@ -252,3 +252,23 @@ ${PENDING(3, 'Website (host example.com)', 'example.com certificate renewed')}`
   await $.ui.mount({ plugin: 'vault-scribe', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 } as never })
   await $.ui.mount({ plugin: 'vault-scribe', surface: 'terminal', component: 'Pane', requestId: 'vs-signals', props: { title: 'vault-scribe signals', isFocused: true, bodyColumns: 80 } as never })
 })
+
+test('a vault-root session doing one project work takes it as its own', async ($, on) => {
+  const w = world(on, {}, undefined, ROOT)
+  await start($)
+  for (const n of [1, 2, 3, 4]) {
+    await $.prompt.submit({ text: `keep going on the website, step ${n}`, origin: { kind: 'composer' }, wait: false } as never)
+    await $.tool.call({ tool: 'Edit', file_path: `C:/code/website/src/page${n}.ts`, old_string: 'a', new_string: 'b' } as never)
+    await turn($, w, `t${n}`)
+  }
+  const sig = w.files[SIGNALS] ?? ''
+  const touched = sig.split('\n').filter(l => l.includes('This session touched Website'))
+  // the first two turns still look cross-project; from the third edit on, Website is the session's own
+  expect(touched.length).toBe(2)
+  expect(sig).toContain('own project: vault, working in Website')
+  // a signal about another project still queues
+  expect(sig).toContain('Blog')
+  const status = (await $.command.run({ command: 'scribe', args: '' } as never)) as { text: string }
+  expect(status.text).toContain('own project: vault (working in Website)')
+})
+
