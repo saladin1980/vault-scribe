@@ -68,7 +68,13 @@ Em-dashes in the model's output become colons, and backslash paths become forwar
 ### 5. Heads-up
 
 At session start (and at most every 10 minutes after), the mod looks for pending signals from *other* sessions in the last 14 days that touch this session's project.
-- **On screen:** they show in a band above the prompt.
+- **On screen:** they show in a band above the prompt. The band has:
+  - the total
+  - a count per project
+  - the next step (your `reviewer_command`, and where the signals live)
+  - the two newest items, written out in full
+  - a **Show all** button. It opens a pane listing every pending signal, grouped by project, each with its id, its file and the session it came from. `/scribe signals` opens the same pane.
+  - a session started from the vault root sees every pending signal, since the whole vault is its project
 - **For Claude:** they are also attached to your next prompt as context, which is how the heads-up reaches you over Remote Control.
 
 ### 6. Guards (optional)

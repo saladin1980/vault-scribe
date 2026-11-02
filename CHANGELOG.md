@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- **A heads-up band you can read and act on.** Before, it showed one count and the last three items, each cut off at the window edge. There was no way to see the rest and no hint of what to do.
+  - The band now has the count per project, the next step (your `reviewer_command` and the signals folder) and the two newest items in full.
+  - **Show all** (or `/scribe signals`) opens a pane with every pending signal, grouped by project, each with its id, file and source session.
+  - Why: a vault-wide session saw 62 truncated items and couldn't tell what they were, where they lived, or who clears them.
+
 ## 0.3.1
 
 - **Fix: citation check no longer matches by file name alone.** Before, editing any `MEMORY.md` flagged every `MEMORY.md:NN` citation in the vault, even ones pointing at another project's file.

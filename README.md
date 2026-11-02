@@ -83,6 +83,7 @@ Full walkthrough: **[docs/setup.md](docs/setup.md)**.
 ## Commands
 
 - `/scribe`: status (owner, project, what's captured, signals, heads-up)
+- `/scribe signals`: open the full list of pending signals in a pane (the band's **Show all** does the same)
 - `/scribe flush`: summarize and write now. Optional: it happens on its own.
 
 ## Privacy, in short

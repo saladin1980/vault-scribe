@@ -10,7 +10,7 @@ import {
   N8N_WHY, approvesPush, checkQuotes, clip, fwd, commandDenyReason, matchPushRule, parseGitPush, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
   isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, newDailyNote, newSignalsFile, norm,
   ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
-  countNames, shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
+  countNames, headsUpProject, tallyProjects, shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
 } from './lib'
 import type { Agg, Citation, GuardOptions, ProjectMap, Signal, Summary, TurnRec } from './lib'
 
@@ -23,6 +23,9 @@ const HUMAN = new Set(['composer', 'bridge'])
 const IDLE_MS = 8 * 60 * 1000
 const HEADS_UP_EVERY_MS = 10 * 60 * 1000
 const HEADS_UP_DAYS = 14
+/** Items the heads-up keeps for the full-list pane; the count is always the real total. */
+const HEADS_UP_KEEP = 300
+const SIGNALS_PANE = 'vs-signals'
 const KEEP_SESSIONS_MS = 3 * 24 * 3600 * 1000
 const RECOVER_AFTER_MS = 30 * 60 * 1000
 
@@ -105,12 +108,29 @@ async function refreshHeadsUp($: $T) {
     for (const s of sigs) {
       if (!isPending(s) || s.sessionId === id8) continue
       const touchesOwn = a.own === 'vault' || s.touches.some(t => touchName(t) === a.own)
-      if (touchesOwn) items.push({ id: s.id, what: s.what, kind: s.kind, from: s.from.replace(/ · cwd.*$/, '') })
+      if (touchesOwn) {
+        items.push({
+          id: s.id, what: s.what, kind: s.kind, from: s.from.replace(/ · cwd.*$/, ''),
+          date: f.name.slice(0, 10), project: headsUpProject(s.touches, a.own),
+        })
+      }
     }
   }
-  const next: HeadsUp | null = items.length === 0 ? null : { project: a.own, items: items.slice(-5), total: items.length }
+  const next: HeadsUp | null = items.length === 0 ? null
+    : { project: a.own, items: items.slice(-HEADS_UP_KEEP), total: items.length, byProject: tallyProjects(items) }
   await update($, headsUp, () => next)
   $.ui.status(`📓 scribe · ${a.own}${next ? ` · ⚠ ${next.total}` : ''}`)
+}
+
+/** The band's and pane's next step: who clears the queue, and where it lives. */
+function nextAction(): string {
+  const how = map.reviewerCommand !== '' ? `run /${map.reviewerCommand}` : 'review them'
+  return `Next: ${how} to process them (each is marked ✅ / 🔁 / ✖ in ${map.signalsDir}/<date>.md)`
+}
+
+async function openSignals($: $T) {
+  await refreshHeadsUp($).catch(() => undefined)
+  await $.ui.open({ id: SIGNALS_PANE, title: 'vault-scribe signals', focus: true, closeOnEscape: true })
 }
 
 // ---------- citation index (vault .md files citing file.md:NNN) ----------
@@ -383,7 +403,7 @@ export const register: Register = (on, options) => {
       await flush($, 'resume', false).catch(() => undefined)
       $.clock.after(1000, () => { void flush($, 'resume', true).catch(() => undefined) })
     }
-    await $.command.register({ name: 'scribe', description: 'vault-scribe: status, or `/scribe flush` to write the daily note now', argumentHint: '[flush]' })
+    await $.command.register({ name: 'scribe', description: 'vault-scribe: status, `/scribe signals` for the full pending list, `/scribe flush` to write the daily note now', argumentHint: '[signals|flush]' })
     await refreshHeadsUp($).catch(() => undefined)
     // Background: prune old session records, build the citation index.
     $.clock.after(1500, () => {
@@ -419,7 +439,7 @@ export const register: Register = (on, options) => {
       a.isHeadsUpSent = true
       extra.push([
         `vault-scribe heads-up: ${hu.total} change(s) from other sessions touch ${hu.project} and have not been reviewed yet. Treat the notes they affect as possibly stale:`,
-        ...hu.items.map(i => `- [${i.kind}] ${i.what} (${i.from}; ${i.id})`),
+        ...hu.items.slice(-5).map(i => `- [${i.kind}] ${i.what} (${i.from}; ${i.id})`),
         `Mention this to ${map.owner} once if it bears on what they asked. Do not fix other projects' notes from here; the reviewer does that.`,
       ].join('\n'))
     }
@@ -518,6 +538,10 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'scribe' }, async ($, e) => {
     const a = await ensureAgg($)
+    if (e.args.trim() === 'signals') {
+      await openSignals($)
+      return { text: 'vault-scribe: opened the pending-signals pane.' }
+    }
     if (e.args.trim() === 'flush') {
       if (current.prompt || current.actions.length > 0) { a.digest.push(current); current = { actions: [] } }
       await flush($, 'command')
@@ -541,19 +565,49 @@ export const register: Register = (on, options) => {
     const hu = await read($, headsUp)
     if (!hu || e.props.hasSurvey || (await read($, isDismissed))) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const cols = Math.max(30, (e.props.bodyColumns ?? e.viewport?.columns ?? 80) - 4)
+    const top = hu.byProject.slice(0, 5).map(p => `${p.name} ${p.n}`)
+    const more = hu.byProject.length > 5 ? ` · +${hu.byProject.length - 5} more` : ''
     return (
       <Box flexDirection="column">
         <Text color="warning" bold>
-          ⚠ {hu.total} change{hu.total === 1 ? '' : 's'} from other sessions touch {hu.project}, pending review
+          ⚠ {hu.total} signal{hu.total === 1 ? '' : 's'} from other sessions {hu.total === 1 ? 'waits' : 'wait'} for review ({hu.project === 'vault' ? 'whole vault' : `touch ${hu.project}`})
         </Text>
-        {hu.items.slice(-3).map(i => (
-          <Text dimColor wrap="truncate-end">
-            {clip(`· ${i.what} (${i.from})`, cols)}
+        <Text dimColor>{top.join(' · ')}{more}</Text>
+        <Text>{nextAction()}</Text>
+        {hu.items.slice(-2).map(i => (
+          <Text key={`vs-latest-${i.id}`} dimColor>
+            {`· latest: ${i.what} (${i.project}, ${i.date})`}
           </Text>
         ))}
         <Box>
+          <Button key="vs-show" label={`Show all ${hu.total}`} onPress={() => openSignals($)} />
           <Button key="vs-dismiss" label="Dismiss" onPress={() => update($, isDismissed, () => true)} />
+        </Box>
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Pane', requestId: SIGNALS_PANE }, async ($, e) => {
+    const hu = await read($, headsUp)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    if (!hu) return <Text>vault-scribe: nothing is waiting for review.</Text>
+    return (
+      <Box flexDirection="column">
+        <Text bold>{hu.total} pending signal{hu.total === 1 ? '' : 's'}{hu.items.length < hu.total ? ` (latest ${hu.items.length} shown)` : ''}</Text>
+        <Text>{nextAction()}</Text>
+        {hu.byProject.map(p => (
+          <Box key={`vs-p-${p.name}`} flexDirection="column" marginTop={1}>
+            <Text color="warning" bold>{p.name} · {p.n}</Text>
+            {hu.items.filter(i => i.project === p.name).reverse().map(i => (
+              <Box key={`vs-i-${i.id}`} flexDirection="column">
+                <Text>{`· [${i.kind}] ${i.what}`}</Text>
+                <Text dimColor>{`    ${i.id} · ${map.signalsDir}/${i.date}.md · ${i.from}`}</Text>
+              </Box>
+            ))}
+          </Box>
+        ))}
+        <Box marginTop={1}>
+          <Button key="vs-close" label="Close" onPress={() => $.ui.close({ id: SIGNALS_PANE })} />
         </Box>
       </Box>
     )

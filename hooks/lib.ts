@@ -561,6 +561,19 @@ export const touchName = (t: string) => t.replace(/\s*\(.*$/, '').trim()
 
 export const isPending = (s: Signal) => s.status.startsWith('⏳')
 
+/** The project a heads-up item is filed under: the first one it touches that is not the viewer's own. */
+export function headsUpProject(touches: string[], own: string): string {
+  const names = touches.map(touchName).filter(n => n !== '')
+  return names.find(n => n !== own) ?? names[0] ?? 'unmapped'
+}
+
+/** Pending items counted per project, biggest first (ties by name). */
+export function tallyProjects(items: { project: string }[]): { name: string; n: number }[] {
+  const counts = new Map<string, number>()
+  for (const i of items) counts.set(i.project, (counts.get(i.project) ?? 0) + 1)
+  return [...counts].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n || a.name.localeCompare(b.name))
+}
+
 // ---------- summary ----------
 
 export function digestText(turns: TurnRec[], maxChars = 14000): string {

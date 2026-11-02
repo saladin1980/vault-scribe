@@ -44,7 +44,10 @@ function world(on: On, store: Record<string, unknown> = {}, toolResult: object =
   on('session.id', async () => ok('abcdef12-0000-0000-0000-000000000000'))
   on('session.cwd', async () => ok('C:/code/website'))
   on('session.root', async () => ok('C:/code/website'))
-  on('fs.exists', async ($, e) => ok(key(e.path) in files))
+  on('fs.exists', async ($, e) => {
+    const k = key(e.path).replace(/\/+$/, '')
+    return ok(k in files || Object.keys(files).some(f => f.startsWith(`${k}/`)))
+  })
   on('fs.read', async ($, e) => {
     const k = key(e.path)
     if (!(k in files)) throw new Error('ENOENT')
@@ -54,7 +57,11 @@ function world(on: On, store: Record<string, unknown> = {}, toolResult: object =
     files[key(e.path)] = e.text
     return VOID
   })
-  on('fs.list', async () => ok([]))
+  on('fs.list', async ($, e) => {
+    const dir = key(e.path).replace(/\/+$/, '')
+    return ok(Object.keys(files).filter(f => f.startsWith(`${dir}/`) && !f.slice(dir.length + 1).includes('/'))
+      .map(f => ({ name: f.slice(dir.length + 1), kind: 'file', size: files[f]?.length ?? 0 })))
+  })
   on('command.register', async ($, e) => ok({ command: e.name }))
   on('ui.status', async () => VOID)
   on('ui.log', async () => VOID)
@@ -203,4 +210,45 @@ test('push guard: announce lets it through with a note; force push is held', asy
   expect((r.context ?? []).join(' ')).toContain('preview deploy on Vercel')
   const f = (await $.tool.call({ tool: 'Bash', command: 'git push --force origin preview' } as never)) as { deny?: string }
   expect(f.deny ?? '').toContain('FORCE push')
+})
+
+const PENDING = (n: number, touches: string, what: string) => `### SIG-2026-10-08-99999999-${n} · ⏳ pending
+- kind: change
+- what: ${what}
+- why: because
+- from: session 99999999 · cwd \`C:/elsewhere\` · own project: Blog · 2026-10-08 09:00
+- touches: ${touches}
+`
+
+test('the band counts per project, names the next step, and opens the full list', async ($, on) => {
+  const w = world(on)
+  w.files[SIGNALS] = `# signals
+
+${PENDING(1, 'Website (path C:/code/website)', 'website build changed')}
+${PENDING(2, 'Blog (named by summary); Website (keyword "astro")', 'blog embed now posts to the new endpoint, a long line that must not be cut off at the window edge')}
+${PENDING(3, 'Website (host example.com)', 'example.com certificate renewed')}`
+  const opened: string[] = []
+  on('ui.open', async ($, e) => { opened.push(e.id); return ok({ isPlaced: true }) })
+  on('ui.close', async () => VOID)
+  on('ui.render', async () => ({ type: 'Box', props: {}, children: [] }) as never)
+  await start($)
+  await w.clock.advance(100)
+  await w.clock.settle()
+
+  const band = await $.ui.mount({ plugin: 'vault-scribe', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 } as never })
+  const texts = (await band.findAll({ type: 'Text' })).map(t => t.text)
+  expect(texts[0]).toContain('3 signals')
+  expect(texts).toContain('Website 2 · Blog 1')
+  expect(texts.some(t => t.startsWith('Next: run /') || t.startsWith('Next: review them'))).toBe(true)
+  expect(texts.some(t => t.includes('must not be cut off at the window edge'))).toBe(true)
+  await band.press({ key: 'vs-show' })
+  expect(opened).toEqual(['vs-signals'])
+
+  const pane = await $.ui.mount({ plugin: 'vault-scribe', surface: 'desktop', component: 'Pane', requestId: 'vs-signals', props: { title: 'vault-scribe signals', isFocused: true, bodyColumns: 80 } as never })
+  const all = (await pane.findAll({ type: 'Text' })).map(t => t.text).join('\n')
+  for (const n of [1, 2, 3]) expect(all).toContain(`SIG-2026-10-08-99999999-${n}`)
+  expect(all).toContain('vault-scribe/signals/2026-10-08.md')
+  // the terminal draws the same trees
+  await $.ui.mount({ plugin: 'vault-scribe', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 80 } as never })
+  await $.ui.mount({ plugin: 'vault-scribe', surface: 'terminal', component: 'Pane', requestId: 'vs-signals', props: { title: 'vault-scribe signals', isFocused: true, bodyColumns: 80 } as never })
 })
