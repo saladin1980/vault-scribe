@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import {
   checkQuotes, commandDenyReason, focusProject, countSessions, dailyNotePath, extractCitations, firstDiffLine, hasVerifiedQuote,
   isTrivial, newDailyNote, noteLink, ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason,
-  approvesPush, matchPushRule, normRemote, parseGitPush, projectDirName, redact, renderBlock, renderSignal, shouldQueue, staleCitations, stampOf, tagText, upsertSession,
+  approvesPush, matchPushRule, normRemote, parseGitPush, projectDirName, redact, renderBlock, renderSignal, rollDay, shouldQueue, staleCitations, stampOf, tagText, upsertSession,
 } from './lib'
 import type { Agg, GuardOptions } from './lib'
 
@@ -312,3 +312,22 @@ test('focus: one project has to clearly lead', () => {
   expect(focusProject({})).toBeNull()
 })
 
+
+test('a session still open on a later day starts a fresh block in that day\'s note', () => {
+  const same = agg()
+  expect(rollDay(same, stampOf(Date.parse('2026-10-08T20:00:00Z')))).toBe(same)
+  const a = agg({ inProgress: ['still wiring the form'], decisions: ['use a honeypot'], signalIds: ['SIG-1'], topic: 'contact form' })
+  const r = rollDay(a, stampOf(Date.parse('2026-10-09T15:30:00Z')))
+  expect(r.date).toBe('2026-10-09')
+  expect(r.startedAt).toBe('11:30')
+  expect(r.sessionNo).toBe(0)
+  expect(r.done).toEqual([])
+  expect(r.decisions).toEqual([])
+  expect(r.notes).toEqual([])
+  expect(r.signalIds).toEqual([])
+  expect(r.inProgress).toEqual(['still wiring the form'])
+  expect(r.topic).toBe('contact form')
+  expect(r.sessionId).toBe(a.sessionId)
+  // Late evening in New York is still the same local day, even though UTC has moved on.
+  expect(rollDay(same, stampOf(Date.parse('2026-10-09T03:30:00Z'))).date).toBe('2026-10-08')
+})

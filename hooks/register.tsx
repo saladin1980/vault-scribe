@@ -8,7 +8,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { HeadsUp, HeadsUpItem } from '../types'
 import {
   N8N_WHY, approvesPush, checkQuotes, clip, fwd, commandDenyReason, matchPushRule, parseGitPush, countSessions, dailyNotePath, digestText, extractCitations, firstDiffLine,
-  isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, newDailyNote, newSignalsFile, norm,
+  isN8nDeleteTool, isPending, isTrivial, isUnder, lineCount, mergeSummary, rollDay, newDailyNote, newSignalsFile, norm,
   focusProject, ownProject, parseProjectMap, parseSignals, parseSummary, pathDenyReason, redact, renderBlock, renderSignal,
   countNames, headsUpProject, tallyProjects, shouldQueue, signalsPath, staleCitations, stampOf, summaryPrompt, tagText, touchName, upsertSession, vaultRel,
 } from './lib'
@@ -184,6 +184,8 @@ async function flushAgg($: $T, a: Agg, why: string, summarize: boolean) {
     const stamp = stampOf(now, map.timeZone)
     a.discussions ??= []
     a.research ??= []
+    // A session still open on a later day writes into that day's note, not the one it started in.
+    Object.assign(a, rollDay(a, stamp))
 
     let summary: Summary | null = null
     if (summarize && a.digest.length > 0) {

@@ -37,7 +37,7 @@ Secrets that look like API keys, tokens, JWTs, private keys, webhook URLs or `pa
 
 ### 2. The daily note, after every turn
 
-The session's block is rewritten inside the turn-end hook itself (no timer, no model). It shows the files touched and how many turns are waiting for a summary. The file is re-read immediately before each write, and only this session's block (between its `<!-- vault-scribe:session:<id> -->` markers) and its Index bullet (tagged `<!-- vs:<id8> -->`) are replaced. Hand-written sections and other sessions' blocks are never touched. Line endings are preserved.
+The session's block is rewritten inside the turn-end hook itself (no timer, no model). It shows the files touched and how many turns are waiting for a summary. The file is re-read immediately before each write, and only this session's block (between its `<!-- vault-scribe:session:<id> -->` markers) and its Index bullet (tagged `<!-- vs:<id8> -->`) are replaced. Hand-written sections and other sessions' blocks are never touched. Line endings are preserved. A session left open past midnight (local time) starts a new block in the new day's note; the earlier day's block stays as it was. What is still in progress carries over to the new block.
 
 ### 3. The summary (every few prompts)
 

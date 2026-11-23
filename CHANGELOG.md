@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2
+
+- **A session that stays open past midnight writes into the new day's note.** Before, a session's block stayed in the note of the day the session started, so a session left open for weeks kept rewriting an old daily note. Now each new local day gets a fresh block; the earlier day's block is left as it was, and in-progress items carry over.
+  - Why: a long-running session opened on one day was still writing its work into that day's note more than three weeks later.
+
 ## 0.5.1
 
 - **The "touched X" safety net fires once per project per session.** Before, a session working in a project queued a fresh "this session touched X" signal at every summary, repeating what an earlier signal had already put in the queue.

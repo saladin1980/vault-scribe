@@ -68,7 +68,7 @@ export type Agg = {
   /** Projects this session has already queued a signal for; the "touched X" safety net fires once per project. */
   queuedFor?: string[]
   sessionNo: number
-  /** The note's date (the session's start day), and its HH:MM start. */
+  /** The note's date (the local day this block is for; rolls to a new day's note, see rollDay), and its HH:MM start. */
   date: string
   startedAt: string
   updatedAtMs: number
@@ -700,6 +700,20 @@ export function mergeSummary(a: Agg, s: Summary): Agg {
     discussions: dedupe([...(a.discussions ?? []), ...s.discussions], 15),
     research: dedupe([...(a.research ?? []), ...s.research], 20),
     inProgress: s.inProgress.length > 0 ? s.inProgress : a.inProgress,
+  }
+}
+
+/**
+ * A session still open on a later local day starts a fresh block in that day's note. The earlier day's
+ * block stays as it was written. Without this, a session left open for weeks kept rewriting the note of
+ * the day it started (found 2026-11-23: a session opened 10-30 was still writing into 2026-10-30.md).
+ * Per-day lists reset; what is still in progress carries over, and so does everything session-wide.
+ */
+export function rollDay(a: Agg, today: Stamp): Agg {
+  if (a.date === today.date) return a
+  return {
+    ...a, date: today.date, startedAt: today.time, sessionNo: 0, indexLine: '',
+    done: [], decisions: [], discussions: [], research: [], notes: [], signalIds: [],
   }
 }
 
